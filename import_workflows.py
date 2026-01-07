@@ -193,6 +193,76 @@ def load_workflow_files() -> List[Path]:
     return sorted(workflow_files)
 
 
+def get_redis_credential_id(session: Optional[requests.Session] = None,
+                            api_key: Optional[str] = None) -> Optional[str]:
+    """
+    Get the ID of the 'Redis Local' credential if it exists.
+    
+    Args:
+        session: requests.Session with authentication cookies (for username/password auth)
+        api_key: N8N API key (for API key auth)
+    
+    Returns:
+        Credential ID or None if not found
+    """
+    try:
+        headers = {}
+        if api_key and not session:
+            headers["X-N8N-API-KEY"] = api_key
+        
+        if session:
+            response = session.get(f"{N8N_URL}/rest/credentials", headers=headers, timeout=10)
+        else:
+            response = requests.get(f"{N8N_URL}/rest/credentials", headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            credentials = response.json()
+            # REST endpoint might return data in a different format
+            if isinstance(credentials, dict):
+                creds_list = credentials.get("data", [])
+            elif isinstance(credentials, list):
+                creds_list = credentials
+            else:
+                return None
+            
+            for cred in creds_list:
+                if isinstance(cred, dict) and cred.get("name") == "Redis Local":
+                    return cred.get("id")
+        
+        return None
+    except Exception as e:
+        logging.debug(f"Could not fetch credentials: {str(e)}")
+        return None
+
+
+def assign_redis_credentials(workflow_data: Dict, redis_credential_id: str) -> bool:
+    """
+    Assign Redis credentials to all Redis nodes in the workflow.
+    
+    Args:
+        workflow_data: Workflow JSON data as dictionary
+        redis_credential_id: ID of the Redis credential to assign
+    
+    Returns:
+        True if any nodes were updated, False otherwise
+    """
+    updated = False
+    for node in workflow_data.get("nodes", []):
+        node_type = node.get("type", "")
+        if node_type in ["n8n-nodes-base.redis", "n8n-nodes-base.redisTrigger"]:
+            # Check if credentials are already set
+            node_creds = node.get("credentials", {})
+            if not node_creds.get("redis"):
+                if "credentials" not in node:
+                    node["credentials"] = {}
+                node["credentials"]["redis"] = {
+                    "id": redis_credential_id,
+                    "name": "Redis Local"
+                }
+                updated = True
+    return updated
+
+
 def check_credentials_needed(workflow_data: Dict) -> List[str]:
     """
     Check which nodes in the workflow need credentials to be configured.
@@ -248,6 +318,12 @@ def import_workflow(workflow_data: Dict, filename: str,
     read_only_fields = ["active", "id", "createdAt", "updatedAt", "versionId", "tags"]
     for field in read_only_fields:
         workflow_data.pop(field, None)
+    
+    # Try to assign Redis credentials automatically if available
+    redis_cred_id = get_redis_credential_id(session=session, api_key=api_key)
+    if redis_cred_id:
+        if assign_redis_credentials(workflow_data, redis_cred_id):
+            logging.info(f"  → Assigned 'Redis Local' credentials to Redis nodes")
     
     # Prepare headers
     headers = {"Content-Type": "application/json"}

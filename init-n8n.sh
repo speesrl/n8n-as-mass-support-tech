@@ -171,6 +171,95 @@ podman exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
   WHERE email = '$ADMIN_EMAIL';
 "
 
+# Function to create Redis credentials via N8N API
+create_redis_credentials() {
+    echo "Creating Redis credentials..."
+    
+    # Wait for N8N API to be ready
+    echo "Waiting for N8N API to be ready..."
+    MAX_ATTEMPTS=30
+    ATTEMPT=0
+    N8N_URL="http://localhost:5678"
+    
+    while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+        if curl -s -f "$N8N_URL/healthz" > /dev/null 2>&1; then
+            echo "N8N API is ready"
+            break
+        fi
+        ATTEMPT=$((ATTEMPT + 1))
+        sleep 2
+    done
+    
+    if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+        echo "WARNING: N8N API not ready, skipping credential creation"
+        return 1
+    fi
+    
+    # Additional wait for N8N to be fully initialized
+    sleep 3
+    
+    # Login to get session cookie
+    COOKIE_FILE=$(mktemp)
+    LOGIN_RESPONSE=$(curl -s -c "$COOKIE_FILE" -X POST "$N8N_URL/rest/login" \
+        -H "Content-Type: application/json" \
+        -d "{\"emailOrLdapLoginId\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}" \
+        -w "\n%{http_code}")
+    
+    HTTP_CODE=$(echo "$LOGIN_RESPONSE" | tail -n1)
+    
+    if [ "$HTTP_CODE" != "200" ]; then
+        echo "WARNING: Failed to login to N8N (HTTP $HTTP_CODE), skipping credential creation"
+        rm -f "$COOKIE_FILE"
+        return 1
+    fi
+    
+    # Check if Redis credentials already exist
+    CREDS_LIST=$(curl -s -b "$COOKIE_FILE" "$N8N_URL/rest/credentials")
+    
+    # Check if "Redis Local" already exists
+    if echo "$CREDS_LIST" | grep -q '"name":"Redis Local"'; then
+        echo "Redis credentials already exist, skipping creation"
+        rm -f "$COOKIE_FILE"
+        return 0
+    fi
+    
+    # Create Redis credentials
+    # N8N expects credentials in a specific encrypted format, but we can use the API
+    CREDENTIAL_DATA='{
+      "name": "Redis Local",
+      "type": "redis",
+      "data": {
+        "host": "redis",
+        "port": 6379,
+        "password": "",
+        "database": 0
+      },
+      "nodesAccess": []
+    }'
+    
+    CREATE_RESPONSE=$(curl -s -w "\n%{http_code}" -b "$COOKIE_FILE" -X POST "$N8N_URL/rest/credentials" \
+        -H "Content-Type: application/json" \
+        -d "$CREDENTIAL_DATA")
+    
+    HTTP_CODE=$(echo "$CREATE_RESPONSE" | tail -n1)
+    RESPONSE_BODY=$(echo "$CREATE_RESPONSE" | head -n-1)
+    
+    rm -f "$COOKIE_FILE"
+    
+    if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+        echo "✓ Redis credentials created successfully"
+        return 0
+    else
+        echo "WARNING: Failed to create Redis credentials: HTTP $HTTP_CODE"
+        echo "Response: $RESPONSE_BODY"
+        echo "You can create them manually in N8N UI: Settings > Credentials"
+        return 1
+    fi
+}
+
+# Create Redis credentials if N8N is accessible
+create_redis_credentials
+
 echo ""
 echo "=========================================="
 echo "N8N Initialization Complete!"
