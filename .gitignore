@@ -6,6 +6,7 @@ volumes/
 .env
 .env.local
 .env.*.local
+.secret
 *.key
 *.pem
 *.crt
