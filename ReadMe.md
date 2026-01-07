@@ -67,6 +67,7 @@ podman compose up -d
 ```
 
 Oppure aggiungi al tuo `~/.bashrc` o `~/.zshrc`:
+
 ```bash
 export N8N_UID=$(id -u)
 export N8N_GID=$(id -g)
@@ -137,6 +138,7 @@ Le credenziali admin sono configurate durante l'esecuzione di `init-project.sh` 
 - **Password:** Configurata durante `init-project.sh` (default: `admin` se non specificato)
 
 Il file `.env` contiene anche:
+
 - `N8N_UID` e `N8N_GID`: ID utente/gruppo per i container
 - `N8N_API_KEY`: Chiave API opzionale (può essere configurata dopo)
 
@@ -146,7 +148,7 @@ Il file `.env` contiene anche:
 
 Tutti i dati persistenti sono nella cartella `./volumes/`:
 
-```
+```text
 volumes/
 ├── config/            # API key MCP
 ├── n8n_data/          # Configurazione n8n locale
@@ -162,6 +164,7 @@ I dati persistono tra `podman compose down` e `up`.
 
 Il docker-compose usa una rete custom con IP statici per la risoluzione DNS (compatibile con Podman CNI senza plugin aggiuntivi):
 
+```text
 | Container | IP | Hostname |
 |-----------|-----|----------|
 | n8n-db | 172.28.0.2 | db |
@@ -169,6 +172,7 @@ Il docker-compose usa una rete custom con IP statici per la risoluzione DNS (com
 | n8n-redisinsight | 172.28.0.4 | redisinsight |
 | n8n-app | 172.28.0.5 | n8n |
 | n8n-mcp | 172.28.0.6 | n8n-mcp |
+```
 
 ## MCP Server for N8N Workflow Generation
 
@@ -420,7 +424,7 @@ Se N8N non si connette a Redis nonostante la configurazione corretta:
 
 Se vedi una pagina bianca con errore nella console:
 
-```
+```text
 ResponseError: Could not find a personal project for this user
 ```
 
